@@ -81,3 +81,34 @@ endlocal
 2. Simpan kode tersebut dengan ekstensi .bat
 3. Jalankan file tersebut
 4. Hasil output berada di Desktop (keystore dan key.properties)
+---
+### Berikutnya
+1. Pindahkan file .jks ke <project-root>/android/app/my-release-key.jks
+2. Pindahkan file key.properties ke <project-root>/android/key.properties
+3. Tambahkan kode pada .gitignote ```# Android keystore & config
+android/key.properties
+android/app/*.jks```
+4. Di android/app/build.gradle, pastikan bagian ini ada (biasanya sudah ada secara default):
+```
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+
+android {
+    ...
+    signingConfigs {
+        release {
+            storeFile file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            ...
+        }
+    }
+}
+```
