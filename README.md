@@ -56,17 +56,37 @@ Isi dengan kode berikut:
 setlocal EnableDelayedExpansion
 
 echo.
-echo ========== Membuat Keystore Flutter + key.properties ==========
+echo ==========================================
+echo Generate Android Keystore + key.properties
+echo ==========================================
 echo.
 
-:: ===== Lokasi penyimpanan otomatis ke Desktop
+:: ========================================
+:: Lokasi output
+:: ========================================
 set "TARGET_DIR=%USERPROFILE%\Desktop"
 
-echo Keystore dan key.properties akan disimpan di:
+echo File akan disimpan di:
 echo %TARGET_DIR%
-
-:: ===== Input nama file keystore
 echo.
+
+:: ========================================
+:: Cek keytool
+:: ========================================
+where keytool >nul 2>&1
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ❌ keytool tidak ditemukan.
+    echo Pastikan Java/JDK sudah terinstall dan tersedia di PATH.
+    echo.
+    pause
+    exit /b
+)
+
+:: ========================================
+:: Nama keystore
+:: ========================================
 set /p KEYSTORE_NAME=Nama file keystore (contoh: my-release-key.jks): 
 
 if "%KEYSTORE_NAME%"=="" (
@@ -76,27 +96,147 @@ if "%KEYSTORE_NAME%"=="" (
     exit /b
 )
 
+:: Tambahkan .jks jika belum ada
+echo %KEYSTORE_NAME% | findstr /I "\.jks$" >nul
+
+if %ERRORLEVEL% NEQ 0 (
+    set "KEYSTORE_NAME=%KEYSTORE_NAME%.jks"
+)
+
 set "KEYSTORE_PATH=%TARGET_DIR%\%KEYSTORE_NAME%"
 
-:: ===== Input lainnya
+:: ========================================
+:: Alias
+:: ========================================
 echo.
 set /p ALIAS_NAME=Alias key (contoh: release): 
-set /p STORE_PASS=Password keystore: 
-set /p KEY_PASS=Password key: 
-set /p DNAME=Distinguished Name (contoh: CN=Nama, OU=Unit, O=Organisasi, L=Kota, S=Provinsi, C=ID): 
 
-:: ===== Buat folder jika belum ada
+if "%ALIAS_NAME%"=="" (
+    echo.
+    echo ❌ Alias tidak boleh kosong!
+    pause
+    exit /b
+)
+
+:: ========================================
+:: Password
+:: ========================================
+echo.
+set /p STORE_PASS=Password keystore: 
+
+if "%STORE_PASS%"=="" (
+    echo.
+    echo ❌ Password keystore tidak boleh kosong!
+    pause
+    exit /b
+)
+
+set /p KEY_PASS=Password key: 
+
+if "%KEY_PASS%"=="" (
+    echo.
+    echo ❌ Password key tidak boleh kosong!
+    pause
+    exit /b
+)
+
+:: ========================================
+:: Distinguished Name
+:: ========================================
+echo.
+echo ==========================================
+echo Informasi Certificate
+echo ==========================================
+echo.
+
+set /p CN=Nama / Common Name (CN): 
+set /p OU=Unit / Department (OU): 
+set /p ORG=Organisasi / Company (O): 
+set /p CITY=Kota (L): 
+set /p STATE=Provinsi / State (ST): 
+set /p COUNTRY=Kode Negara 2 huruf (C, contoh: ID): 
+
+:: Validasi
+if "%CN%"=="" (
+    echo.
+    echo ❌ Common Name tidak boleh kosong!
+    pause
+    exit /b
+)
+
+if "%ORG%"=="" (
+    echo.
+    echo ❌ Organisasi tidak boleh kosong!
+    pause
+    exit /b
+)
+
+if "%CITY%"=="" (
+    echo.
+    echo ❌ Kota tidak boleh kosong!
+    pause
+    exit /b
+)
+
+if "%STATE%"=="" (
+    echo.
+    echo ❌ Provinsi tidak boleh kosong!
+    pause
+    exit /b
+)
+
+if "%COUNTRY%"=="" (
+    echo.
+    echo ❌ Kode negara tidak boleh kosong!
+    pause
+    exit /b
+)
+
+:: Gabungkan Distinguished Name
+set "DNAME=CN=%CN%, OU=%OU%, O=%ORG%, L=%CITY%, ST=%STATE%, C=%COUNTRY%"
+
+:: ========================================
+:: Buat folder output
+:: ========================================
 if not exist "%TARGET_DIR%" (
-    echo Membuat folder: %TARGET_DIR%
     mkdir "%TARGET_DIR%"
 )
 
-:: ===== Jalankan keytool
-echo.
-echo Membuat keystore di:
-echo %KEYSTORE_PATH%
+:: ========================================
+:: Cek file existing
+:: ========================================
+if exist "%KEYSTORE_PATH%" (
+    echo.
+    echo ⚠️ File sudah ada:
+    echo %KEYSTORE_PATH%
+    echo.
 
-keytool -genkey -v ^
+    set /p OVERWRITE=Timpa file tersebut? (y/n): 
+
+    if /I not "%OVERWRITE%"=="y" (
+        echo.
+        echo Proses dibatalkan.
+        pause
+        exit /b
+    )
+
+    del "%KEYSTORE_PATH%"
+)
+
+:: ========================================
+:: Generate Keystore
+:: ========================================
+echo.
+echo ==========================================
+echo Membuat Keystore
+echo ==========================================
+echo.
+
+echo Distinguished Name:
+echo %DNAME%
+echo.
+
+keytool -genkeypair -v ^
  -keystore "%KEYSTORE_PATH%" ^
  -alias "%ALIAS_NAME%" ^
  -keyalg RSA ^
@@ -109,12 +249,15 @@ keytool -genkey -v ^
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo ❌ Gagal membuat keystore.
-    echo Silakan periksa kembali input atau konfigurasi keytool.
+    echo Silakan periksa input atau konfigurasi Java/keytool.
+    echo.
     pause
     exit /b
 )
 
-:: ===== Buat key.properties
+:: ========================================
+:: Generate key.properties
+:: ========================================
 set "KEY_PROP_PATH=%TARGET_DIR%\key.properties"
 
 (
@@ -124,27 +267,45 @@ set "KEY_PROP_PATH=%TARGET_DIR%\key.properties"
     echo storeFile=%KEYSTORE_NAME%
 ) > "%KEY_PROP_PATH%"
 
-if exist "%KEY_PROP_PATH%" (
+if not exist "%KEY_PROP_PATH%" (
     echo.
-    echo ✅ key.properties berhasil dibuat di:
-    echo %KEY_PROP_PATH%
-) else (
-    echo.
-    echo ❌ Gagal membuat file key.properties.
+    echo ❌ Gagal membuat key.properties.
     pause
     exit /b
 )
 
+:: ========================================
+:: Finish
+:: ========================================
 echo.
 echo ==========================================
 echo ✅ Proses selesai
 echo ==========================================
 echo.
-echo File disimpan di:
-echo %TARGET_DIR%
+
+echo Keystore:
+echo %KEYSTORE_PATH%
+echo.
+
+echo key.properties:
+echo %KEY_PROP_PATH%
+echo.
+
+echo Selanjutnya pindahkan:
+echo.
+
+echo %KEYSTORE_NAME%
+echo ke:
+echo ^<project-root^>\android\app\%KEYSTORE_NAME%
+echo.
+
+echo key.properties
+echo ke:
+echo ^<project-root^>\android\key.properties
 echo.
 
 pause
+
 endlocal
 ```
 
@@ -240,16 +401,19 @@ Kemudian isi dengan kode berikut:
 clear
 
 echo ""
-echo "========== Membuat Keystore Flutter + key.properties =========="
+echo "=========================================="
+echo "Generate Android Keystore + key.properties"
+echo "=========================================="
 echo ""
 
 # ========================================
-# Lokasi penyimpanan otomatis ke Desktop
+# Lokasi output
 # ========================================
 TARGET_DIR="$HOME/Desktop"
 
-echo "Keystore dan key.properties akan disimpan di:"
+echo "File akan disimpan di:"
 echo "$TARGET_DIR"
+echo ""
 
 # ========================================
 # Cek keytool
@@ -264,10 +428,8 @@ if ! command -v keytool >/dev/null 2>&1; then
 fi
 
 # ========================================
-# Input nama keystore
+# Nama keystore
 # ========================================
-echo ""
-
 read -p "Nama file keystore (contoh: my-release-key.jks): " KEYSTORE_NAME
 
 if [ -z "$KEYSTORE_NAME" ]; then
@@ -277,7 +439,7 @@ if [ -z "$KEYSTORE_NAME" ]; then
     exit 1
 fi
 
-# Tambahkan ekstensi .jks jika belum ada
+# Tambahkan .jks jika belum ada
 if [[ "$KEYSTORE_NAME" != *.jks ]]; then
     KEYSTORE_NAME="${KEYSTORE_NAME}.jks"
 fi
@@ -285,7 +447,7 @@ fi
 KEYSTORE_PATH="$TARGET_DIR/$KEYSTORE_NAME"
 
 # ========================================
-# Input Alias
+# Alias
 # ========================================
 echo ""
 
@@ -299,7 +461,7 @@ if [ -z "$ALIAS_NAME" ]; then
 fi
 
 # ========================================
-# Input Password
+# Password
 # ========================================
 echo ""
 
@@ -327,18 +489,58 @@ fi
 # Distinguished Name
 # ========================================
 echo ""
-echo "Contoh:"
-echo "CN=Nama Anda, OU=Development, O=Nama Organisasi, L=Kota, ST=Provinsi, C=ID"
+echo "=========================================="
+echo "Informasi Certificate"
+echo "=========================================="
 echo ""
 
-read -p "Distinguished Name: " DNAME
+read -p "Nama / Common Name (CN): " CN
+read -p "Unit / Department (OU): " OU
+read -p "Organisasi / Company (O): " ORG
+read -p "Kota (L): " CITY
+read -p "Provinsi / State (ST): " STATE
+read -p "Kode Negara 2 huruf (C, contoh: ID): " COUNTRY
 
-if [ -z "$DNAME" ]; then
+# ========================================
+# Validasi Distinguished Name
+# ========================================
+if [ -z "$CN" ]; then
     echo ""
-    echo "❌ Distinguished Name tidak boleh kosong!"
+    echo "❌ Common Name tidak boleh kosong!"
     read -p "Tekan Enter untuk keluar..."
     exit 1
 fi
+
+if [ -z "$ORG" ]; then
+    echo ""
+    echo "❌ Organisasi tidak boleh kosong!"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+if [ -z "$CITY" ]; then
+    echo ""
+    echo "❌ Kota tidak boleh kosong!"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+if [ -z "$STATE" ]; then
+    echo ""
+    echo "❌ Provinsi tidak boleh kosong!"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+if [ -z "$COUNTRY" ]; then
+    echo ""
+    echo "❌ Kode negara tidak boleh kosong!"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+# Gabungkan Distinguished Name
+DNAME="CN=$CN, OU=$OU, O=$ORG, L=$CITY, ST=$STATE, C=$COUNTRY"
 
 # ========================================
 # Buat folder jika belum ada
@@ -370,7 +572,13 @@ fi
 # Generate Keystore
 # ========================================
 echo ""
-echo "Membuat keystore..."
+echo "=========================================="
+echo "Membuat Keystore"
+echo "=========================================="
+echo ""
+
+echo "Distinguished Name:"
+echo "$DNAME"
 echo ""
 
 keytool \
@@ -406,13 +614,7 @@ keyAlias=$ALIAS_NAME
 storeFile=$KEYSTORE_NAME
 EOF
 
-# ========================================
-# Validasi
-# ========================================
-if [ -f "$KEY_PROP_PATH" ]; then
-    echo ""
-    echo "✅ key.properties berhasil dibuat."
-else
+if [ ! -f "$KEY_PROP_PATH" ]; then
     echo ""
     echo "❌ Gagal membuat key.properties."
     read -p "Tekan Enter untuk keluar..."
@@ -440,11 +642,13 @@ echo "Selanjutnya pindahkan:"
 echo ""
 
 echo "$KEYSTORE_NAME"
-echo "→ <project-root>/android/app/$KEYSTORE_NAME"
+echo "ke:"
+echo "<project-root>/android/app/$KEYSTORE_NAME"
 
 echo ""
 echo "key.properties"
-echo "→ <project-root>/android/key.properties"
+echo "ke:"
+echo "<project-root>/android/key.properties"
 
 echo ""
 
