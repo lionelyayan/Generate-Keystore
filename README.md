@@ -62,15 +62,6 @@ echo ==========================================
 echo.
 
 :: ========================================
-:: Lokasi output
-:: ========================================
-set "TARGET_DIR=%USERPROFILE%\Desktop"
-
-echo File akan disimpan di:
-echo %TARGET_DIR%
-echo.
-
-:: ========================================
 :: Cek keytool
 :: ========================================
 where keytool >nul 2>&1
@@ -85,6 +76,72 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: ========================================
+:: Pilih lokasi penyimpanan
+:: ========================================
+echo Pilih lokasi penyimpanan...
+echo.
+
+set "TEMP_FILE=%TEMP%\keystore_folder_%RANDOM%.txt"
+
+powershell -NoProfile -STA -Command ^
+"Add-Type -AssemblyName System.Windows.Forms; ^
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; ^
+$dialog.Description = 'Pilih lokasi penyimpanan keystore'; ^
+$dialog.ShowNewFolderButton = $true; ^
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ^
+    $dialog.SelectedPath | Out-File -Encoding ASCII '%TEMP_FILE%' ^
+}"
+
+if not exist "%TEMP_FILE%" (
+    echo.
+    echo ❌ Lokasi penyimpanan tidak dipilih.
+    pause
+    exit /b
+)
+
+set /p SELECTED_DIR=<"%TEMP_FILE%"
+del "%TEMP_FILE%" >nul 2>&1
+
+if "%SELECTED_DIR%"=="" (
+    echo.
+    echo ❌ Lokasi penyimpanan tidak dipilih.
+    pause
+    exit /b
+)
+
+:: ========================================
+:: Nama folder
+:: ========================================
+echo.
+set /p FOLDER_NAME=Nama folder penyimpanan (contoh: android-signing): 
+
+if "%FOLDER_NAME%"=="" (
+    echo.
+    echo ❌ Nama folder tidak boleh kosong!
+    pause
+    exit /b
+)
+
+set "TARGET_DIR=%SELECTED_DIR%\%FOLDER_NAME%"
+
+if not exist "%TARGET_DIR%" (
+    mkdir "%TARGET_DIR%"
+)
+
+if not exist "%TARGET_DIR%" (
+    echo.
+    echo ❌ Gagal membuat folder:
+    echo %TARGET_DIR%
+    pause
+    exit /b
+)
+
+echo.
+echo File akan disimpan di:
+echo %TARGET_DIR%
+echo.
+
+:: ========================================
 :: Nama keystore
 :: ========================================
 set /p KEYSTORE_NAME=Nama file keystore (contoh: my-release-key.jks): 
@@ -96,7 +153,6 @@ if "%KEYSTORE_NAME%"=="" (
     exit /b
 )
 
-:: Tambahkan .jks jika belum ada
 echo %KEYSTORE_NAME% | findstr /I "\.jks$" >nul
 
 if %ERRORLEVEL% NEQ 0 (
@@ -141,7 +197,7 @@ if "%KEY_PASS%"=="" (
 )
 
 :: ========================================
-:: Distinguished Name
+:: Informasi Certificate
 :: ========================================
 echo.
 echo ==========================================
@@ -156,31 +212,9 @@ set /p CITY=Kota (L):
 set /p STATE=Provinsi / State (ST): 
 set /p COUNTRY=Kode Negara 2 huruf (C, contoh: ID): 
 
-:: Validasi
 if "%CN%"=="" (
     echo.
     echo ❌ Common Name tidak boleh kosong!
-    pause
-    exit /b
-)
-
-if "%ORG%"=="" (
-    echo.
-    echo ❌ Organisasi tidak boleh kosong!
-    pause
-    exit /b
-)
-
-if "%CITY%"=="" (
-    echo.
-    echo ❌ Kota tidak boleh kosong!
-    pause
-    exit /b
-)
-
-if "%STATE%"=="" (
-    echo.
-    echo ❌ Provinsi tidak boleh kosong!
     pause
     exit /b
 )
@@ -192,15 +226,39 @@ if "%COUNTRY%"=="" (
     exit /b
 )
 
-:: Gabungkan Distinguished Name
-set "DNAME=CN=%CN%, OU=%OU%, O=%ORG%, L=%CITY%, ST=%STATE%, C=%COUNTRY%"
+:: ========================================
+:: Note
+:: ========================================
+echo.
+echo ==========================================
+echo Note / Keterangan
+echo ==========================================
+echo.
+
+set /p NOTE=Note (opsional): 
 
 :: ========================================
-:: Buat folder output
+:: Distinguished Name
 :: ========================================
-if not exist "%TARGET_DIR%" (
-    mkdir "%TARGET_DIR%"
+set "DNAME=CN=%CN%"
+
+if not "%OU%"=="" (
+    set "DNAME=!DNAME!, OU=%OU%"
 )
+
+if not "%ORG%"=="" (
+    set "DNAME=!DNAME!, O=%ORG%"
+)
+
+if not "%CITY%"=="" (
+    set "DNAME=!DNAME!, L=%CITY%"
+)
+
+if not "%STATE%"=="" (
+    set "DNAME=!DNAME!, ST=%STATE%"
+)
+
+set "DNAME=!DNAME!, C=%COUNTRY%"
 
 :: ========================================
 :: Cek file existing
@@ -232,10 +290,6 @@ echo Membuat Keystore
 echo ==========================================
 echo.
 
-echo Distinguished Name:
-echo %DNAME%
-echo.
-
 keytool -genkeypair -v ^
  -keystore "%KEYSTORE_PATH%" ^
  -alias "%ALIAS_NAME%" ^
@@ -244,7 +298,7 @@ keytool -genkeypair -v ^
  -validity 10000 ^
  -storepass "%STORE_PASS%" ^
  -keypass "%KEY_PASS%" ^
- -dname "%DNAME%"
+ -dname "!DNAME!"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -275,6 +329,64 @@ if not exist "%KEY_PROP_PATH%" (
 )
 
 :: ========================================
+:: Generate keystore-info.txt
+:: ========================================
+set "INFO_PATH=%TARGET_DIR%\keystore-info.txt"
+
+(
+    echo ==========================================
+    echo ANDROID KEYSTORE INFORMATION
+    echo ==========================================
+    echo.
+    echo Created At
+    echo ----------
+    echo %DATE% %TIME%
+    echo.
+    echo Note
+    echo ----
+    echo %NOTE%
+    echo.
+    echo Keystore
+    echo --------
+    echo File Name : %KEYSTORE_NAME%
+    echo Alias     : %ALIAS_NAME%
+    echo.
+    echo Certificate Information
+    echo -----------------------
+    echo Common Name ^(CN^)         : %CN%
+    echo Organizational Unit ^(OU^) : %OU%
+    echo Organization ^(O^)         : %ORG%
+    echo City / Locality ^(L^)      : %CITY%
+    echo State / Province ^(ST^)    : %STATE%
+    echo Country ^(C^)              : %COUNTRY%
+    echo.
+    echo Distinguished Name
+    echo ------------------
+    echo !DNAME!
+    echo.
+    echo Project Configuration
+    echo ---------------------
+    echo Keystore:
+    echo android/app/%KEYSTORE_NAME%
+    echo.
+    echo Properties:
+    echo android/key.properties
+    echo.
+    echo key.properties:
+    echo storePassword=^<hidden^>
+    echo keyPassword=^<hidden^>
+    echo keyAlias=%ALIAS_NAME%
+    echo storeFile=%KEYSTORE_NAME%
+    echo.
+    echo IMPORTANT
+    echo ---------
+    echo - Password tidak ditulis di file informasi ini.
+    echo - Simpan file keystore dan password di tempat yang aman.
+    echo - Jangan commit file .jks atau key.properties ke repository Git.
+    echo - Backup keystore sebelum digunakan untuk aplikasi production.
+) > "%INFO_PATH%"
+
+:: ========================================
 :: Finish
 :: ========================================
 echo.
@@ -283,12 +395,14 @@ echo ✅ Proses selesai
 echo ==========================================
 echo.
 
-echo Keystore:
-echo %KEYSTORE_PATH%
+echo Folder:
+echo %TARGET_DIR%
 echo.
 
-echo key.properties:
-echo %KEY_PROP_PATH%
+echo File yang dibuat:
+echo ├── %KEYSTORE_NAME%
+echo ├── key.properties
+echo └── keystore-info.txt
 echo.
 
 echo Selanjutnya pindahkan:
@@ -304,6 +418,13 @@ echo ke:
 echo ^<project-root^>\android\key.properties
 echo.
 
+set /p OPEN_FOLDER=Buka folder hasil? (y/n): 
+
+if /I "%OPEN_FOLDER%"=="y" (
+    explorer "%TARGET_DIR%"
+)
+
+echo.
 pause
 
 endlocal
@@ -407,15 +528,6 @@ echo "=========================================="
 echo ""
 
 # ========================================
-# Lokasi output
-# ========================================
-TARGET_DIR="$HOME/Desktop"
-
-echo "File akan disimpan di:"
-echo "$TARGET_DIR"
-echo ""
-
-# ========================================
 # Cek keytool
 # ========================================
 if ! command -v keytool >/dev/null 2>&1; then
@@ -426,6 +538,65 @@ if ! command -v keytool >/dev/null 2>&1; then
     read -p "Tekan Enter untuk keluar..."
     exit 1
 fi
+
+# ========================================
+# Pilih lokasi penyimpanan
+# ========================================
+echo "Pilih lokasi penyimpanan..."
+echo ""
+
+SELECTED_DIR=$(osascript <<'EOF'
+try
+    set selectedFolder to choose folder with prompt "Pilih lokasi penyimpanan keystore:"
+    return POSIX path of selectedFolder
+on error
+    return ""
+end try
+EOF
+)
+
+if [ -z "$SELECTED_DIR" ]; then
+    echo ""
+    echo "❌ Lokasi penyimpanan tidak dipilih."
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+# Hapus trailing slash
+SELECTED_DIR="${SELECTED_DIR%/}"
+
+# ========================================
+# Nama folder
+# ========================================
+echo ""
+read -p "Nama folder penyimpanan (contoh: android-signing): " FOLDER_NAME
+
+if [ -z "$FOLDER_NAME" ]; then
+    echo ""
+    echo "❌ Nama folder tidak boleh kosong!"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+TARGET_DIR="$SELECTED_DIR/$FOLDER_NAME"
+
+# ========================================
+# Buat folder
+# ========================================
+mkdir -p "$TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo ""
+    echo "❌ Gagal membuat folder:"
+    echo "$TARGET_DIR"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+echo ""
+echo "File akan disimpan di:"
+echo "$TARGET_DIR"
+echo ""
 
 # ========================================
 # Nama keystore
@@ -450,7 +621,6 @@ KEYSTORE_PATH="$TARGET_DIR/$KEYSTORE_NAME"
 # Alias
 # ========================================
 echo ""
-
 read -p "Alias key (contoh: release): " ALIAS_NAME
 
 if [ -z "$ALIAS_NAME" ]; then
@@ -486,7 +656,7 @@ if [ -z "$KEY_PASS" ]; then
 fi
 
 # ========================================
-# Distinguished Name
+# Informasi Certificate
 # ========================================
 echo ""
 echo "=========================================="
@@ -502,32 +672,11 @@ read -p "Provinsi / State (ST): " STATE
 read -p "Kode Negara 2 huruf (C, contoh: ID): " COUNTRY
 
 # ========================================
-# Validasi Distinguished Name
+# Validasi Certificate
 # ========================================
 if [ -z "$CN" ]; then
     echo ""
     echo "❌ Common Name tidak boleh kosong!"
-    read -p "Tekan Enter untuk keluar..."
-    exit 1
-fi
-
-if [ -z "$ORG" ]; then
-    echo ""
-    echo "❌ Organisasi tidak boleh kosong!"
-    read -p "Tekan Enter untuk keluar..."
-    exit 1
-fi
-
-if [ -z "$CITY" ]; then
-    echo ""
-    echo "❌ Kota tidak boleh kosong!"
-    read -p "Tekan Enter untuk keluar..."
-    exit 1
-fi
-
-if [ -z "$STATE" ]; then
-    echo ""
-    echo "❌ Provinsi tidak boleh kosong!"
     read -p "Tekan Enter untuk keluar..."
     exit 1
 fi
@@ -539,20 +688,56 @@ if [ -z "$COUNTRY" ]; then
     exit 1
 fi
 
-# Gabungkan Distinguished Name
-DNAME="CN=$CN, OU=$OU, O=$ORG, L=$CITY, ST=$STATE, C=$COUNTRY"
+if [ ${#COUNTRY} -ne 2 ]; then
+    echo ""
+    echo "❌ Kode negara harus 2 huruf."
+    echo "Contoh: ID, US, SG"
+    read -p "Tekan Enter untuk keluar..."
+    exit 1
+fi
+
+COUNTRY=$(echo "$COUNTRY" | tr '[:lower:]' '[:upper:]')
 
 # ========================================
-# Buat folder jika belum ada
+# Note
 # ========================================
-mkdir -p "$TARGET_DIR"
+echo ""
+echo "=========================================="
+echo "Note / Keterangan"
+echo "=========================================="
+echo ""
+
+read -p "Note (opsional): " NOTE
+
+# ========================================
+# Distinguished Name
+# ========================================
+DNAME="CN=$CN"
+
+if [ -n "$OU" ]; then
+    DNAME="$DNAME, OU=$OU"
+fi
+
+if [ -n "$ORG" ]; then
+    DNAME="$DNAME, O=$ORG"
+fi
+
+if [ -n "$CITY" ]; then
+    DNAME="$DNAME, L=$CITY"
+fi
+
+if [ -n "$STATE" ]; then
+    DNAME="$DNAME, ST=$STATE"
+fi
+
+DNAME="$DNAME, C=$COUNTRY"
 
 # ========================================
 # Cek file existing
 # ========================================
 if [ -f "$KEYSTORE_PATH" ]; then
     echo ""
-    echo "⚠️ File sudah ada:"
+    echo "⚠️ Keystore sudah ada:"
     echo "$KEYSTORE_PATH"
     echo ""
 
@@ -575,10 +760,6 @@ echo ""
 echo "=========================================="
 echo "Membuat Keystore"
 echo "=========================================="
-echo ""
-
-echo "Distinguished Name:"
-echo "$DNAME"
 echo ""
 
 keytool \
@@ -622,6 +803,66 @@ if [ ! -f "$KEY_PROP_PATH" ]; then
 fi
 
 # ========================================
+# Generate informasi keystore
+# ========================================
+INFO_PATH="$TARGET_DIR/keystore-info.txt"
+
+CREATED_AT=$(date "+%Y-%m-%d %H:%M:%S")
+
+cat > "$INFO_PATH" <<EOF
+==========================================
+ANDROID KEYSTORE INFORMATION
+==========================================
+
+Created At
+----------
+$CREATED_AT
+
+Note
+----
+${NOTE:-Tidak ada}
+
+Keystore
+--------
+File Name : $KEYSTORE_NAME
+Alias     : $ALIAS_NAME
+
+Certificate Information
+-----------------------
+Common Name (CN)         : $CN
+Organizational Unit (OU) : $OU
+Organization (O)         : $ORG
+City / Locality (L)      : $CITY
+State / Province (ST)    : $STATE
+Country (C)              : $COUNTRY
+
+Distinguished Name
+------------------
+$DNAME
+
+Project Configuration
+---------------------
+Keystore:
+android/app/$KEYSTORE_NAME
+
+Properties:
+android/key.properties
+
+key.properties:
+storePassword=<hidden>
+keyPassword=<hidden>
+keyAlias=$ALIAS_NAME
+storeFile=$KEYSTORE_NAME
+
+IMPORTANT
+---------
+- Password tidak ditulis di file informasi ini.
+- Simpan file keystore dan password di tempat yang aman.
+- Jangan commit file .jks atau key.properties ke repository Git.
+- Backup keystore sebelum digunakan untuk aplikasi production.
+EOF
+
+# ========================================
 # Finish
 # ========================================
 echo ""
@@ -630,28 +871,49 @@ echo "✅ Proses selesai"
 echo "=========================================="
 echo ""
 
+echo "Folder:"
+echo "$TARGET_DIR"
+echo ""
+
+echo "File yang dibuat:"
+echo "├── $KEYSTORE_NAME"
+echo "├── key.properties"
+echo "└── keystore-info.txt"
+echo ""
+
 echo "Keystore:"
 echo "$KEYSTORE_PATH"
-
 echo ""
+
 echo "key.properties:"
 echo "$KEY_PROP_PATH"
-
 echo ""
+
+echo "Informasi:"
+echo "$INFO_PATH"
+echo ""
+
 echo "Selanjutnya pindahkan:"
 echo ""
 
 echo "$KEYSTORE_NAME"
-echo "ke:"
-echo "<project-root>/android/app/$KEYSTORE_NAME"
-
+echo "→ <project-root>/android/app/$KEYSTORE_NAME"
 echo ""
+
 echo "key.properties"
-echo "ke:"
-echo "<project-root>/android/key.properties"
-
+echo "→ <project-root>/android/key.properties"
 echo ""
 
+# ========================================
+# Buka folder hasil
+# ========================================
+read -p "Buka folder hasil? (y/n): " OPEN_FOLDER
+
+if [[ "$OPEN_FOLDER" == "y" || "$OPEN_FOLDER" == "Y" ]]; then
+    open "$TARGET_DIR"
+fi
+
+echo ""
 read -p "Tekan Enter untuk selesai..."
 ```
 
